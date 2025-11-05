@@ -5,6 +5,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader
 
 from security.authentication import AuthenticationEnforcer
 from security.authorization import AuthorizationEnforcer, require_permission
+from security.validation import InputValidator
 
 # === Gestion robuste des chemins ===
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))      # /.../exo_pattern/security_app
@@ -24,10 +25,11 @@ app.permanent_session_lifetime = timedelta(minutes=30)
 
 # === Authentification ===
 auth = AuthenticationEnforcer(session)
+validator = InputValidator()
 
 users_db = {
-    "admin": auth.hash_password("admin123!"),
-    "user": auth.hash_password("user123!")
+    "admin": auth.hash_password("adminSys123!"),
+    "user": auth.hash_password("uSersyst123!")
 }
 
 # === Routes ===
@@ -38,11 +40,27 @@ def index():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        username = request.form.get("username")
-        password = request.form.get("password")
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+
+        # 1) Détection SQLi basique
+        if validator.detect_sql_injection(username) or validator.detect_sql_injection(password):
+            return render_template("login.html", error="Entrée suspecte détectée.", last_username=username), 400
+
+        # 2) Validation format username/password
+        if not validator.validate_username(username):
+            return render_template("login.html", error="Nom d'utilisateur invalide (3–20 alphanum).", last_username=username), 400
+
+        # On valide aussi le format du mot de passe (coté client + serveur)
+        if not validator.validate_password(password):
+            return render_template("login.html", error="Mot de passe invalide (8+ avec min/maj/chiffre/symbole).", last_username=username), 400
+
+        # 3) Authentification
         if auth.login_user(username, password, users_db):
             return redirect(url_for("dashboard"))
-        return render_template("login.html", error="Identifiants incorrects.")
+
+        return render_template("login.html", error="Identifiants incorrects ou compte bloqué.", last_username=username), 401
+
     return render_template("login.html")
 
 @app.route("/dashboard")
