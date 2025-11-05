@@ -4,6 +4,7 @@ import os
 from jinja2 import ChoiceLoader, FileSystemLoader
 
 from security.authentication import AuthenticationEnforcer
+from security.authorization import AuthorizationEnforcer, require_permission
 
 # === Gestion robuste des chemins ===
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))      # /.../exo_pattern/security_app
@@ -61,3 +62,11 @@ if __name__ == "__main__":
     print(" -", TEMPLATE_DIR_1, "exists:", os.path.isdir(TEMPLATE_DIR_1))
     print(" -", TEMPLATE_DIR_2, "exists:", os.path.isdir(TEMPLATE_DIR_2))
     app.run(debug=True)
+
+@app.route("/admin")
+@require_permission("admin")
+def admin_panel():
+    if not auth.is_authenticated():
+        return redirect(url_for("login"))
+    user = session.get("user")
+    return f"<h1>Bienvenue sur la page admin, {user} 👑</h1>"
