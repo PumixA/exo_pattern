@@ -6,6 +6,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader
 from security.authentication import AuthenticationEnforcer
 from security.authorization import AuthorizationEnforcer, require_permission
 from security.validation import InputValidator
+from security.audit import SecurityAuditLogger
 
 # === Gestion robuste des chemins ===
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))      # /.../exo_pattern/security_app
@@ -26,11 +27,16 @@ app.permanent_session_lifetime = timedelta(minutes=30)
 # === Authentification ===
 auth = AuthenticationEnforcer(session)
 validator = InputValidator()
+audit = SecurityAuditLogger() 
 
 users_db = {
     "admin": auth.hash_password("adminSys123!"),
     "user": auth.hash_password("uSersyst123!")
 }
+
+def _client_ip():
+    # Simple IP extraction; à adapter derrière un proxy (X-Forwarded-For)
+    return request.headers.get("X-Forwarded-For", request.remote_addr or "unknown")
 
 # === Routes ===
 @app.route("/")
@@ -39,28 +45,39 @@ def index():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    ip = _client_ip()
     if request.method == "POST":
         username = (request.form.get("username") or "").strip()
         password = request.form.get("password") or ""
 
         # 1) Détection SQLi basique
         if validator.detect_sql_injection(username) or validator.detect_sql_injection(password):
+            audit.anomaly(user=username or None, ip=ip, kind="sqli_probe", data={"path": request.path})
             return render_template("login.html", error="Entrée suspecte détectée.", last_username=username), 400
 
         # 2) Validation format username/password
         if not validator.validate_username(username):
             return render_template("login.html", error="Nom d'utilisateur invalide (3–20 alphanum).", last_username=username), 400
 
-        # On valide aussi le format du mot de passe (coté client + serveur)
         if not validator.validate_password(password):
             return render_template("login.html", error="Mot de passe invalide (8+ avec min/maj/chiffre/symbole).", last_username=username), 400
 
         # 3) Authentification
-        if auth.login_user(username, password, users_db):
-            return redirect(url_for("dashboard"))
+        locked = False
+        # (On check l'état de lock si dispo)
+        try:
+            locked = getattr(auth, "_is_locked")(username)  # pour l'audit (exercice)
+        except Exception:
+            pass
 
+        success = auth.login_user(username, password, users_db)
+        audit.login_attempt(user=username, ip=ip, success=success, locked=locked)
+
+        if success:
+            return redirect(url_for("dashboard"))
         return render_template("login.html", error="Identifiants incorrects ou compte bloqué.", last_username=username), 401
 
+    # GET
     return render_template("login.html")
 
 @app.route("/dashboard")
@@ -88,3 +105,18 @@ def admin_panel():
         return redirect(url_for("login"))
     user = session.get("user")
     return f"<h1>Bienvenue sur la page admin, {user} 👑</h1>"
+
+# === Gestion centralisée des erreurs ===
+@app.errorhandler(403)
+def handle_403(e):
+    user = session.get("user")
+    ip = _client_ip()
+    audit.access_denied(user=user, ip=ip, path=request.path, reason="forbidden")
+    return "403 Forbidden", 403
+
+@app.errorhandler(500)
+def handle_500(e):
+    user = session.get("user")
+    ip = _client_ip()
+    audit.anomaly(user=user, ip=ip, kind="server_error", data={"path": request.path})
+    return "500 Internal Server Error", 500
