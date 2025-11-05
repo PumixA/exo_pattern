@@ -1,24 +1,62 @@
 <!doctype html>
-<html>
-<head>
+<html lang="fr">
+  <head>
     <meta charset="utf-8">
     <title>Connexion</title>
-</head>
-<body>
-<h1>Connexion</h1>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; padding: 24px; max-width: 560px; margin: auto; }
+      form { display: grid; gap: 12px; margin-top: 12px; }
+      label { font-weight: 600; }
+      input { padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; }
+      button { padding: 10px 14px; border: 0; border-radius: 6px; cursor: pointer; font-size: 16px; }
+      .btn { background: #111; color: #fff; }
+      .error { background: #ffe9e9; color: #a10000; padding: 10px 12px; border: 1px solid #ffbcbc; border-radius: 6px; margin: 10px 0; }
+      .hint { color: #666; font-size: 12px; margin-top: -6px; }
+      .stack { display: grid; gap: 6px; }
+      a { color: #0a58ca; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <h1>Connexion</h1>
 
-{% if error %}
-<p style="color:red;">{{ error }}</p>
-{% endif %}
+    {% if error %}
+      <div class="error">{{ error }}</div>
+    {% endif %}
 
-<form method="POST" action="/login">
-    <label>Nom d'utilisateur :</label><br>
-    <input type="text" name="username" required><br><br>
+    <form method="POST" action="/login" novalidate>
+      <div class="stack">
+        <label for="username">Nom d'utilisateur</label>
+        <input
+          id="username"
+          name="username"
+          type="text"
+          inputmode="latin"
+          required
+          pattern="[A-Za-z0-9]{3,20}"
+          title="3 à 20 caractères alphanumériques (A-Z, a-z, 0-9)."
+          value="{{ last_username or '' }}"
+          autocomplete="username"
+        >
+        <div class="hint">3–20 caractères alphanumériques</div>
+      </div>
 
-    <label>Mot de passe :</label><br>
-    <input type="password" name="password" required><br><br>
+      <div class="stack">
+        <label for="password">Mot de passe</label>
+        <input
+          id="password"
+          name="password"
+          type="password"
+          required
+          pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&]).{8,}"
+          title="Au moins 8 caractères, avec minuscule, majuscule, chiffre et symbole."
+          autocomplete="current-password"
+        >
+        <div class="hint">Au moins 8 caractères, avec minuscule, majuscule, chiffre et symbole</div>
+      </div>
 
-    <button type="submit">Se connecter</button>
-</form>
-</body>
+      <button class="btn" type="submit">Se connecter</button>
+    </form>
+  </body>
 </html>
