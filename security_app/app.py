@@ -1,10 +1,10 @@
-from flask import Flask, render_template, redirect, url_for, request, session
+from flask import Flask, render_template, redirect, url_for, request, session, jsonify, abort
 from datetime import timedelta
 import os
 from jinja2 import ChoiceLoader, FileSystemLoader
 
 from security.authentication import AuthenticationEnforcer
-from security.authorization import AuthorizationEnforcer, require_permission
+from security.authorization import require_permission
 from security.validation import InputValidator
 from security.audit import SecurityAuditLogger
 
@@ -24,24 +24,30 @@ app.jinja_loader = ChoiceLoader([
 app.secret_key = "change-me-in-.env"
 app.permanent_session_lifetime = timedelta(minutes=30)
 
-# === Authentification ===
+# === Services sécurité ===
 auth = AuthenticationEnforcer(session)
 validator = InputValidator()
-audit = SecurityAuditLogger() 
+audit = SecurityAuditLogger()
 
+# === "Base" utilisateurs en mémoire (demo) ===
 users_db = {
     "admin": auth.hash_password("adminSys123!"),
-    "user": auth.hash_password("uSersyst123!")
+    "user": auth.hash_password("uSersyst123!"),
 }
 
 def _client_ip():
-    # Simple IP extraction; à adapter derrière un proxy (X-Forwarded-For)
+    # Simple; à adapter si proxy (X-Forwarded-For)
     return request.headers.get("X-Forwarded-For", request.remote_addr or "unknown")
 
-# === Routes ===
+
+# =========================
+#         ROUTES
+# =========================
+
 @app.route("/")
 def index():
     return redirect(url_for("login"))
+
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -58,15 +64,13 @@ def login():
         # 2) Validation format username/password
         if not validator.validate_username(username):
             return render_template("login.html", error="Nom d'utilisateur invalide (3–20 alphanum).", last_username=username), 400
-
         if not validator.validate_password(password):
             return render_template("login.html", error="Mot de passe invalide (8+ avec min/maj/chiffre/symbole).", last_username=username), 400
 
-        # 3) Authentification
+        # 3) Authentification (+ état de lock pour l’audit)
         locked = False
-        # (On check l'état de lock si dispo)
         try:
-            locked = getattr(auth, "_is_locked")(username)  # pour l'audit (exercice)
+            locked = getattr(auth, "_is_locked")(username)
         except Exception:
             pass
 
@@ -80,6 +84,7 @@ def login():
     # GET
     return render_template("login.html")
 
+
 @app.route("/dashboard")
 def dashboard():
     if not auth.is_authenticated():
@@ -87,16 +92,14 @@ def dashboard():
     user = session.get("user")
     return render_template("dashboard.html", user=user)
 
+
 @app.route("/logout")
 def logout():
     auth.logout_user()
     return redirect(url_for("login"))
 
-if __name__ == "__main__":
-    print("[DEBUG] Template paths:")
-    print(" -", TEMPLATE_DIR_1, "exists:", os.path.isdir(TEMPLATE_DIR_1))
-    print(" -", TEMPLATE_DIR_2, "exists:", os.path.isdir(TEMPLATE_DIR_2))
-    app.run(debug=True)
+
+# ===== ADMIN =====
 
 @app.route("/admin")
 @require_permission("admin")
@@ -106,7 +109,74 @@ def admin_panel():
     user = session.get("user")
     return f"<h1>Bienvenue sur la page admin, {user} 👑</h1>"
 
-# === Gestion centralisée des erreurs ===
+
+# ===== API: création d’utilisateur (validation requise) =====
+# Spéc Ex.6 : /api/users — protège avec une permission forte
+@app.route("/api/users", methods=["POST"])
+@require_permission("admin")  # tu peux changer pour "write" si tu préfères
+def api_create_user():
+    if not auth.is_authenticated():
+        return jsonify({"error": "not_authenticated"}), 401
+
+    ip = _client_ip()
+
+    # Enforce JSON
+    if not request.is_json:
+        audit.anomaly(user=session.get("user"), ip=ip, kind="bad_request", data={"reason": "non_json"})
+        return jsonify({"error": "expected_json"}), 400
+
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+    age = data.get("age")
+
+    # Détection tentative SQLi
+    if any(validator.detect_sql_injection(str(v)) for v in [username, email, password, age]):
+        audit.anomaly(user=session.get("user"), ip=ip, kind="sqli_probe", data={"path": request.path})
+        return jsonify({"error": "suspicious_input"}), 400
+
+    # Validations
+    if not validator.validate_username(username):
+        return jsonify({"error": "invalid_username"}), 400
+    if not validator.validate_email(email):
+        return jsonify({"error": "invalid_email"}), 400
+    if not validator.validate_password(password):
+        return jsonify({"error": "invalid_password"}), 400
+    if age is None or not validator.validate_age(age):
+        return jsonify({"error": "invalid_age"}), 400
+
+    # Conflit si l’utilisateur existe
+    if username in users_db:
+        return jsonify({"error": "user_exists"}), 409
+
+    # Création
+    users_db[username] = auth.hash_password(password)
+
+    # Audit: permission / création d’utilisateur (tolérant au nom de méthode)
+    try:
+        audit.permission_change(
+            user=session.get("user"),
+            ip=ip,
+            target=username,
+            action="create_user",
+            details={"email": email, "age": age}
+        )
+    except Exception:
+        audit.anomaly(
+            user=session.get("user"),
+            ip=ip,
+            kind="permission_change_fallback",
+            data={"target": username, "action": "create_user", "email": email, "age": age}
+        )
+
+    return jsonify({"ok": True, "username": username}), 201
+
+
+# =========================
+#     GESTION DES ERREURS
+# =========================
+
 @app.errorhandler(403)
 def handle_403(e):
     user = session.get("user")
@@ -114,9 +184,20 @@ def handle_403(e):
     audit.access_denied(user=user, ip=ip, path=request.path, reason="forbidden")
     return "403 Forbidden", 403
 
+
 @app.errorhandler(500)
 def handle_500(e):
     user = session.get("user")
     ip = _client_ip()
     audit.anomaly(user=user, ip=ip, kind="server_error", data={"path": request.path})
     return "500 Internal Server Error", 500
+
+
+# =========================
+#         RUN
+# =========================
+if __name__ == "__main__":
+    print("[DEBUG] Template paths:")
+    print(" -", TEMPLATE_DIR_1, "exists:", os.path.isdir(TEMPLATE_DIR_1))
+    print(" -", TEMPLATE_DIR_2, "exists:", os.path.isdir(TEMPLATE_DIR_2))
+    app.run(debug=True)
