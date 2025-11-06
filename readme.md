@@ -81,7 +81,7 @@ Dépendances Python : `flask`, `werkzeug` (install via pip)
 
 ---
 
-# 4. Arborescence 
+# 3. Arborescence 
 
 ```
 exo_pattern/
@@ -104,7 +104,7 @@ exo_pattern/
 
 ---
 
-# 5. Composants (technique, résumé)
+# 4. Composants (technique, résumé)
 
 ## authentication.py — AuthenticationEnforcer
 
@@ -137,7 +137,7 @@ exo_pattern/
 
 ---
 
-# 6. Endpoints — spécification
+# 5. Endpoints — spécification
 
 ## Pages HTML
 
@@ -166,7 +166,7 @@ exo_pattern/
 
 ---
 
-# 7. Format des logs d’audit (exemples)
+# 6. Format des logs d’audit (exemples)
 
 ```json
 {"timestamp":"2025-11-05T20:53:07Z","event_type":"ANOMALY","user":"admin' OR 1=1--","severity":"WARNING","ip":"127.0.0.1","path":"/login","details":{"kind":"sqli_probe"}}
@@ -176,7 +176,7 @@ exo_pattern/
 
 ---
 
-# 8. Tests — commandes prêtes
+# 7. Tests — commandes prêtes
 
 > Lancer le serveur et conserver `run.log` :
 
@@ -240,7 +240,7 @@ curl -b admin.cookies -i -X POST http://127.0.0.1:5000/api/users \
 
 ---
 
-# 9. Artefacts à rendre
+# 8. Artefacts à rendre
 
 1. `run.log` ou `audit.log` (JSON lines) contenant les événements.
 2. `test_report.md` (rapport de tests) : commandes + résultats + extraits de logs/captures.
@@ -249,7 +249,7 @@ curl -b admin.cookies -i -X POST http://127.0.0.1:5000/api/users \
 
 ---
 
-# 10. Exemple minimal de test (template)
+# 9. Exemple minimal de test (template)
 
 ```markdown
 # Rapport de tests - Exercice 6
@@ -272,7 +272,7 @@ curl -b admin.cookies -i -X POST http://127.0.0.1:5000/api/users \
 
 ---
 
-# 11. Critères d’évaluation (proposition)
+# 10. Critères d’évaluation (proposition)
 
 * Implémentation fonctionnelle — 40 pts
 * Sécurité (hashing, lockout, validations, RBAC, audit) — 30 pts
@@ -281,7 +281,7 @@ curl -b admin.cookies -i -X POST http://127.0.0.1:5000/api/users \
 
 ---
 
-# 12. Recommandations (pour production)
+# 11. Recommandations (pour production)
 
 * Ne pas committer `app.secret_key` ; utiliser variables d’environnement.
 * Forcer HTTPS + cookies `Secure`, `HttpOnly`, `SameSite=strict`.
@@ -292,7 +292,7 @@ curl -b admin.cookies -i -X POST http://127.0.0.1:5000/api/users \
 
 ---
 
-# 13. Checklist avant rendu
+# 12. Checklist avant rendu
 
 * [ ] Code final poussé sur GitHub
 * [ ] `artifacts/run.log` et `test_report.md` ajoutés
